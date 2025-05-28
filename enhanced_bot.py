@@ -121,24 +121,25 @@ class OldChurchSlavonicBot:
     async def handle_level_selection(self, chat_id, message_id):
         """Handle level selection step"""
         level_message = (
-            "Во истину, всякому учению начало подобает.\n"
-            "Скажи ж мне, другъ, в каковей степени пребываешь ты в премудрости словенской?\n\n"
-            "🔸 **Азъ есмь начатый**\n"
-            "– Лишь ведаю буквы, но жажду смысла.\n\n"
-            "🔸 **Вѣдѣю понемногу**\n"
-            "– Читал малое, разумѣю кое-что, но хочу углубити разумъ.\n\n"
-            "🔸 **Старецъ словесный**\n"
-            "– Много прочёл, но и ныне ищу глубинъ новых.\n\n"
-            "Избери, да воздам ти путь соответный."
-        )
-        
+    "Всякому учению начало положено.\n"
+    "Скажи, друг, на каком ты пути в словесной премудрости?\n\n"
+    "🔸 **Я — начатый**\n"
+    "– Только буквы ведаю, но смысл познать хочу.\n\n"
+    "🔸 **Знаю понемногу**\n"
+    "– Немного читал, что-то понимаю, но тянет вглубь.\n\n"
+    "🔸 **Старец словесный**\n"
+    "– Много познал, но ищу глубины новые.\n\n"
+    "Избери степень — и путь твой начнётся."
+)
+
         keyboard = {
-            "inline_keyboard": [
-                [{"text": "🔸 Азъ есмь начатый", "callback_data": "level_beginner"}],
-                [{"text": "🔸 Вѣдѣю понемногу", "callback_data": "level_intermediate"}],
-                [{"text": "🔸 Старецъ словесный", "callback_data": "level_advanced"}]
-            ]
-        }
+    "inline_keyboard": [
+        [{"text": "🔸 Я — начатый", "callback_data": "level_beginner"}],
+        [{"text": "🔸 Знаю понемногу", "callback_data": "level_intermediate"}],
+        [{"text": "🔸 Старец словесный", "callback_data": "level_advanced"}]
+    ]
+}
+
         
         await self.edit_message(chat_id, message_id, level_message, keyboard)
     
@@ -339,27 +340,23 @@ class OldChurchSlavonicBot:
             await self.show_main_menu(chat_id, first_name, message_id)
     
     async def show_main_menu(self, chat_id, first_name, message_id=None):
-        """Show main menu with options"""
-        main_message = (
-            f"Добро пожаловать, {first_name}!\n\n"
-            "Путь твой определён. Что желаешь сотворити?\n\n"
-            "📖 **Получить задание** — новый урок и испытание\n"
-            "📋 **Учебный план** — твой путь познания\n"
-            "📜 **Посмотреть прогресс** — летопись твоих достижений"
-        )
+        """Show main menu"""
+        message = f"Радуйся, {first_name}! Что желаеши творити днесь?\n\n"
+        message += "Избери путь свой в учении языка межславянского:"
         
         keyboard = {
             "inline_keyboard": [
                 [{"text": "📖 Получить задание", "callback_data": "get_assignment"}],
                 [{"text": "📋 Учебный план", "callback_data": "show_study_plan"}],
-                [{"text": "📜 Посмотреть прогресс", "callback_data": "show_progress"}]
+                [{"text": "🔮 Получить заклинание дня", "callback_data": "get_word_ritual"}],
+                [{"text": "📜 Моя летопись", "callback_data": "show_progress"}]
             ]
         }
         
         if message_id:
-            await self.edit_message(chat_id, message_id, main_message, keyboard)
+            await self.edit_message(chat_id, message_id, message, keyboard)
         else:
-            await self.send_message(chat_id, main_message, keyboard)
+            await self.send_message(chat_id, message, keyboard)
     
     async def show_study_plan(self, chat_id, message_id, user_id):
         """Show the user's study plan"""
@@ -948,6 +945,59 @@ class OldChurchSlavonicBot:
                 {"inline_keyboard": [[{"text": "📖 Получить новое задание", "callback_data": "get_assignment"}]]}
             )
     
+    async def handle_word_ritual(self, chat_id, message_id, user_id):
+        """Handle the 'Ritual of the Word' feature"""
+        # Show loading message
+        await self.edit_message(chat_id, message_id, "⏳ Создаем ритуал словеси...")
+        
+        try:
+            # Get a random word from the dictionary
+            word_data = db.get_random_word_for_ritual()
+            
+            if not word_data:
+                await self.edit_message(
+                    chat_id,
+                    message_id,
+                    "😔 Не удалось получить слово для ритуала. Попробуйте позже.",
+                    {"inline_keyboard": [[{"text": "🏠 Главное меню", "callback_data": "main_menu"}]]}
+                )
+                return
+            
+            # Get the word and its meaning
+            word = word_data.get('word', '')
+            meaning = word_data.get('meaning_ru', '')
+            
+            # Get user avatar for personalized content
+            user_data = db.get_user(user_id)
+            avatar = user_data.get('avatar') if user_data else None
+            
+            # Generate ritual text using OpenAI
+            ritual_text = await openai_service.generate_word_ritual(word, meaning, avatar)
+            
+            # Format the ritual message
+            message = f"🔮 **Ритуал словеси**\n\n"
+            message += f"{ritual_text}"
+            
+            # Create keyboard with options
+            keyboard = {
+                "inline_keyboard": [
+                    [{"text": "🔮 Получить новое заклинание", "callback_data": "get_word_ritual"}],
+                    [{"text": "📖 Получить задание", "callback_data": "get_assignment"}],
+                    [{"text": "🏠 Главное меню", "callback_data": "main_menu"}]
+                ]
+            }
+            
+            await self.edit_message(chat_id, message_id, message, keyboard)
+            
+        except Exception as e:
+            logger.error(f"Error generating word ritual: {e}")
+            await self.edit_message(
+                chat_id,
+                message_id,
+                "😔 Произошла ошибка при создании ритуала. Попробуйте снова.",
+                {"inline_keyboard": [[{"text": "🏠 Главное меню", "callback_data": "main_menu"}]]}
+            )
+    
     async def show_progress(self, chat_id, message_id, user_id):
         """Show user progress as a chronicle"""
         user_data = db.get_user(user_id)
@@ -1062,6 +1112,8 @@ class OldChurchSlavonicBot:
                                 await self.show_progress(chat_id, message_id, user_id)
                             elif data == "show_study_plan":
                                 await self.show_study_plan(chat_id, message_id, user_id)
+                            elif data == "get_word_ritual":
+                                await self.handle_word_ritual(chat_id, message_id, user_id)
                             elif data == "next_topic":
                                 await self.handle_next_topic(chat_id, message_id, user_id)
                             elif data == "prev_topic":

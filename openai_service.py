@@ -406,5 +406,73 @@ class OpenAIService:
             logger.error(f"Unexpected error in generate_lesson_and_quiz: {e}")
             raise Exception("Произошла неожиданная ошибка. Попробуйте снова.")
 
+    async def generate_word_ritual(self, word, meaning, avatar=None):
+        """
+        Generate a ritual text for the "Ritual of the Word" feature
+        
+        Parameters:
+        word (str): The Inter-Slavic word
+        meaning (str): The meaning of the word in Russian
+        avatar (str, optional): The user's avatar style
+        
+        Returns:
+        str: The generated ritual text
+        """
+        try:
+            # Define avatar communication styles
+            avatar_styles = {
+                "vedunia": "Speak with warmth, wisdom, and encouragement. Use rich but understandable language. Be supportive and motherly.",
+                "bolgar": "Speak with clarity, depth, and honor. Be friendly and respectful. Convey a sense of being a reliable ally.",
+                "starec": "Speak in a calm, encouraging, and wise manner. Use meditative speech with notes of antiquity. Talk as if a grandfather to a grandson.",
+                "polyak": "Speak in a modern, playful, and lively style. Use youth language, humor, simplicity, and vigor."
+            }
+            
+            # Get the avatar style instruction
+            avatar_style = ""
+            if avatar and avatar in avatar_styles:
+                avatar_style = f"\n\nCommunication style: {avatar_styles[avatar]}\n"
+            
+            prompt = f"""
+            Ты — волшебный помощник, помогающий человеку постигать межславянский язык с вдохновением и смыслом. 
+            Каждый день ты создаёшь «Ритуал словеси» — короткое послание, основанное на одном слове из межславянского языка.{avatar_style}
+
+            На входе:
+            - Слово (на межславянском): "{word}"
+            - Его значение (на русском): "{meaning}"
+
+            На выходе ты формируешь структуру:
+            1. Настрой/интерпретация (1–2 предложения): как слово может быть принято внутрь — как образ, эмоция, качество.
+            2. Финальная фраза в стиле архаичной магической формулы, например:
+               - «Да пребудет с тобой слово сие»
+               - «Прими гласъ древний въ сердце своє»
+               - «Глаголи днесь въ силе и ясности»
+
+            Не используй старославянские буквы (ѣ, ъ и т.п.), стиль — архаичный, но доступный.
+            """
+            
+            response = self.client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {
+                        "role": "system", 
+                        "content": "Ты — мудрый наставник в изучении межславянского языка, создающий вдохновляющие ритуальные тексты."
+                    },
+                    {
+                        "role": "user", 
+                        "content": prompt
+                    }
+                ],
+                temperature=0.7,
+                max_tokens=300
+            )
+            
+            ritual_text = response.choices[0].message.content.strip()
+            logger.info("Successfully generated word ritual")
+            return ritual_text
+            
+        except Exception as e:
+            logger.error(f"Error generating word ritual: {e}")
+            return f"Прими слово сие как дар древних времен. Да будет оно светом на пути твоем."
+
 # Create global instance
 openai_service = OpenAIService()

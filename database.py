@@ -150,6 +150,56 @@ class Database:
                     )
                 """)
                 
+                # Words table for the "Ritual of the Word" feature
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS words (
+                        id SERIAL PRIMARY KEY,
+                        word VARCHAR(255) NOT NULL,
+                        meaning_ru TEXT,
+                        part_of_speech VARCHAR(50),
+                        level VARCHAR(50),
+                        tag VARCHAR(100),
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                
+                # Check if words table is empty and populate it with some initial words
+                cursor.execute("SELECT COUNT(*) FROM words")
+                word_count = cursor.fetchone()[0]
+                
+                if word_count == 0:
+                    # Populate with some initial words
+                    initial_words = [
+                        ("svoboda", "свобода, воля", "n.", "beginner", "basic"),
+                        ("ljubiti", "любить", "v.", "beginner", "basic"),
+                        ("slovo", "слово", "n.", "beginner", "basic"),
+                        ("čelovek", "человек", "n.", "beginner", "basic"),
+                        ("zemja", "земля", "n.", "beginner", "basic"),
+                        ("voda", "вода", "n.", "beginner", "basic"),
+                        ("ogonj", "огонь", "n.", "beginner", "basic"),
+                        ("dom", "дом", "n.", "beginner", "basic"),
+                        ("duša", "душа", "n.", "beginner", "basic"),
+                        ("serce", "сердце", "n.", "beginner", "basic"),
+                        ("mir", "мир, покой", "n.", "beginner", "basic"),
+                        ("život", "жизнь", "n.", "beginner", "basic"),
+                        ("mudrost", "мудрость", "n.", "beginner", "basic"),
+                        ("istina", "истина, правда", "n.", "beginner", "basic"),
+                        ("sila", "сила", "n.", "beginner", "basic"),
+                        ("radost", "радость", "n.", "beginner", "basic"),
+                        ("svetlo", "свет", "n.", "beginner", "basic"),
+                        ("tma", "тьма", "n.", "beginner", "basic"),
+                        ("dobro", "добро", "n.", "beginner", "basic"),
+                        ("zlo", "зло", "n.", "beginner", "basic"),
+                    ]
+                    
+                    cursor.executemany("""
+                        INSERT INTO words (word, meaning_ru, part_of_speech, level, tag)
+                        VALUES (%s, %s, %s, %s, %s)
+                    """, initial_words)
+                    
+                    logger.info(f"Populated words table with {len(initial_words)} initial words")
+                    self.connection.commit()
+                
                 self.connection.commit()
                 logger.info("Database tables created successfully")
         except Exception as e:
@@ -620,6 +670,72 @@ class Database:
                 return cursor.fetchall()
         except Exception as e:
             logger.error(f"Failed to get random words: {e}")
+            return []
+            
+    def get_random_word_for_ritual(self):
+        """Get a single random word for the 'Ritual of the Word' feature
+        
+        Returns:
+        dict: Dictionary with word information or None if no words found
+        """
+        try:
+            self.ensure_connection()
+            with self.connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+                # Get a random word from the dictionary
+                query = "SELECT * FROM words ORDER BY RANDOM() LIMIT 1"
+                cursor.execute(query)
+                word = cursor.fetchone()
+                
+                # If no word found, return a default word
+                if not word:
+                    return {
+                        "word": "svoboda",
+                        "meaning_ru": "свобода, воля"
+                    }
+                    
+                return word
+        except Exception as e:
+            logger.error(f"Failed to get random word for ritual: {e}")
+            # Return a default word if there's an error
+            return {
+                "word": "svoboda",
+                "meaning_ru": "свобода, воля"
+            }
+            
+    def get_all_active_users(self):
+        """Get all active users who have allowed messages
+        
+        Returns:
+        list: List of dictionaries with user information
+        """
+        try:
+            self.ensure_connection()
+            with self.connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+                # Check if the allow_messages column exists
+                cursor.execute("""
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_name = 'users' AND column_name = 'allow_messages'
+                """)
+                
+                if not cursor.fetchone():
+                    # Add the allow_messages column if it doesn't exist
+                    cursor.execute("""
+                        ALTER TABLE users 
+                        ADD COLUMN allow_messages BOOLEAN DEFAULT TRUE
+                    """)
+                    self.connection.commit()
+                    logger.info("Added allow_messages column to users table")
+                
+                # Get all users who have allowed messages
+                cursor.execute("""
+                    SELECT * FROM users 
+                    WHERE allow_messages = TRUE
+                """)
+                
+                return cursor.fetchall()
+        except Exception as e:
+            logger.error(f"Failed to get active users: {e}")
             return []
 
     def update_progress(self, user_id, study_plan_item_id, is_correct):
