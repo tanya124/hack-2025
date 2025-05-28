@@ -3,11 +3,12 @@
 import asyncio
 import json
 import logging
-from datetime import datetime
-from config import TELEGRAM_BOT_TOKEN, logger
-from openai_service import openai_service
-from database import db
 import httpx
+import random
+from datetime import datetime
+from database import db
+from openai_service import openai_service
+from config import REQUIRED_CORRECT_ANSWERS, TELEGRAM_BOT_TOKEN, logger
 
 class OldChurchSlavonicBot:
     def __init__(self, token):
@@ -652,13 +653,34 @@ class OldChurchSlavonicBot:
                 error_keyboard
             )
     
-    async def handle_quiz_answer(self, chat_id, message_id, user_id, callback_data):
+    async def answer_callback_query(self, callback_query_id, text=None, show_alert=False):
+        """Answer a callback query"""
+        data = {
+            "callback_query_id": callback_query_id,
+            "show_alert": show_alert
+        }
+        if text:
+            data["text"] = text
+        
+        try:
+            response = await self.session.post(f"{self.base_url}/answerCallbackQuery", data=data)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            logger.error(f"Failed to answer callback query: {e}")
+            return {"ok": False}
+    
+    async def handle_quiz_answer(self, chat_id, message_id, user_id, callback_data, callback_query_id=None):
         """Handle quiz answer"""
         session = self.quiz_sessions.get(user_id)
         if not session or session.get('answered'):
-            await self.edit_message(
+            # Отвечаем на callback_query, чтобы убрать индикатор загрузки
+            if callback_query_id:
+                await self.answer_callback_query(callback_query_id, "Вы уже ответили на этот вопрос или сессия истекла.")
+            
+            # Отправляем новое сообщение вместо редактирования
+            await self.send_message(
                 chat_id, 
-                message_id, 
                 "Вы уже ответили на этот вопрос или сессия истекла.",
                 {"inline_keyboard": [[{"text": "Получить новое задание", "callback_data": "get_assignment"}]]}
             )
@@ -673,6 +695,10 @@ class OldChurchSlavonicBot:
             option_index = int(parts[1])
             user_answer = session['options'][option_index]  # Get full answer from session
             
+            # Отвечаем на callback_query с ответом пользователя (отобразится как всплывающее уведомление от имени пользователя)
+            if callback_query_id:
+                await self.answer_callback_query(callback_query_id, f"Вы выбрали: {user_answer}", show_alert=True)
+            
             # Check if answer is correct
             is_correct = user_answer == session['correct_answer']
             
@@ -684,23 +710,42 @@ class OldChurchSlavonicBot:
             new_bloom_level = current_bloom_level
             if topic_id:
                 if is_correct:
-                    # If correct, increase Bloom's level (max 6)
-                    new_bloom_level = min(current_bloom_level + 1, 6)
-                    # If reached level 6, mark topic as completed
-                    is_completed = (new_bloom_level == 6)
+                    # Получаем текущее количество правильных ответов для этого уровня
+                    # И требуемое количество для перехода на следующий уровень
+                    required_answers = REQUIRED_CORRECT_ANSWERS[current_bloom_level] if current_bloom_level < len(REQUIRED_CORRECT_ANSWERS) else 5
                     
-                    # Update topic progress in database
-                    db.update_topic_progress(user_id, topic_id, new_bloom_level, is_completed)
+                    # Обновляем прогресс в базе данных
+                    db.update_topic_progress(user_id, topic_id, current_bloom_level, False, is_correct=True)
                     
-                    # If completed this topic, move to next topic
-                    if is_completed:
-                        next_topic = db.get_next_topic(user_id, topic_id)
-                        if next_topic:
-                            db.set_current_topic(user_id, next_topic["id"])
+                    # Получаем обновленные данные о прогрессе
+                    cursor = db.connection.cursor()
+                    cursor.execute("""
+                        SELECT correct_answers_count 
+                        FROM study_progress 
+                        WHERE user_id = %s AND study_plan_item_id = %s
+                    """, (user_id, topic_id))
+                    progress_data = cursor.fetchone()
+                    correct_answers_count = progress_data[0] if progress_data else 1
+                    
+                    # Проверяем, достаточно ли правильных ответов для перехода на следующий уровень
+                    if correct_answers_count >= required_answers and current_bloom_level < 6:
+                        # Если достаточно, увеличиваем уровень Блума (max 6)
+                        new_bloom_level = min(current_bloom_level + 1, 6)
+                        # Если достигнут уровень 6, помечаем тему как завершенную
+                        is_completed = (new_bloom_level == 6)
+                        
+                        # Обновляем уровень Блума и сбрасываем счетчик правильных ответов
+                        db.update_topic_progress(user_id, topic_id, new_bloom_level, is_completed, is_correct=False)
+                        
+                        # Если тема завершена, переходим к следующей теме
+                        if is_completed:
+                            next_topic = db.get_next_topic(user_id, topic_id)
+                            if next_topic:
+                                db.set_current_topic(user_id, next_topic["id"])
                 else:
-                    # If incorrect, decrease Bloom's level (min 1)
+                    # Если ответ неверный, уменьшаем уровень Блума (min 1) и сбрасываем счетчик
                     new_bloom_level = max(current_bloom_level - 1, 1)
-                    db.update_topic_progress(user_id, topic_id, new_bloom_level, False)
+                    db.update_topic_progress(user_id, topic_id, new_bloom_level, False, is_correct=False)
             
             # Save progress to history
             topic_name = "" if not topic_id else db.get_topic_name(topic_id)
@@ -723,9 +768,11 @@ class OldChurchSlavonicBot:
                 "Творчество"    # Create
             ]
             
+            # Ответ пользователя отображается через всплывающее уведомление
+            
+            # Формируем сообщение с обратной связью
             if is_correct:
                 response = f"🎉 **Правильно!**\n\n"
-                response += f"Твой ответ: {user_answer}\n\n"
                 
                 if topic_id and new_bloom_level > current_bloom_level:
                     if new_bloom_level == 6:
@@ -734,7 +781,6 @@ class OldChurchSlavonicBot:
                         response += f"⬆️ Вы перешли на уровень **{bloom_levels[new_bloom_level-1]}** (уровень {new_bloom_level} из 6)\n\n"
             else:
                 response = f"🚫 **Неверно**\n\n"
-                response += f"Твой ответ: {user_answer}\n\n"
                 response += f"Правильный ответ: {session['correct_answer']}\n\n"
                 
                 if topic_id and new_bloom_level < current_bloom_level:
@@ -749,13 +795,27 @@ class OldChurchSlavonicBot:
                 ]
             }
             
-            await self.edit_message(chat_id, message_id, response, keyboard)
+            # Отправляем обратную связь как новое сообщение
+            await self.send_message(chat_id, response, keyboard)
+            
+            # Удаляем кнопки из исходного сообщения с заданием, но оставляем само сообщение
+            # Получаем исходное сообщение с заданием
+            original_message = f"📚 **Урок: {topic_name}**\n"
+            original_message += f"**Уровень: {bloom_levels[current_bloom_level-1]}** (уровень {current_bloom_level} из 6)\n\n"
+            original_message += f"{session['lesson']}\n\n"
+            original_message += f"❓ **Вопрос:**\n{session['question']}"
+            
+            # Обновляем исходное сообщение, убирая кнопки
+            await self.edit_message(chat_id, message_id, original_message)
             
         except Exception as e:
             logger.error(f"Error handling quiz answer: {e}")
-            await self.edit_message(
+            # Отвечаем на callback_query, чтобы убрать индикатор загрузки
+            if callback_query_id:
+                await self.answer_callback_query(callback_query_id, "Произошла ошибка при обработке ответа.")
+                
+            await self.send_message(
                 chat_id,
-                message_id,
                 f"😔 Произошла ошибка при обработке ответа.",
                 {"inline_keyboard": [[{"text": "📖 Получить новое задание", "callback_data": "get_assignment"}]]}
             )
@@ -865,7 +925,8 @@ class OldChurchSlavonicBot:
                             elif data == "get_assignment":
                                 await self.handle_get_assignment(chat_id, message_id, user_id)
                             elif data.startswith("answer_"):
-                                await self.handle_quiz_answer(chat_id, message_id, user_id, data)
+                                # Передаем callback_query_id в метод handle_quiz_answer
+                                await self.handle_quiz_answer(chat_id, message_id, user_id, data, query["id"])
                             elif data == "show_progress":
                                 await self.show_progress(chat_id, message_id, user_id)
                             elif data == "show_study_plan":

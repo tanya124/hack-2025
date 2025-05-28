@@ -507,39 +507,62 @@ class Database:
             self.connection.rollback()
             return False
     
-    def update_topic_progress(self, user_id, topic_id, new_bloom_level, is_completed):
+    def update_topic_progress(self, user_id, topic_id, new_bloom_level, is_completed, is_correct=False):
         """Update progress for a specific topic"""
         try:
             self.ensure_connection()
             with self.connection.cursor() as cursor:
                 # Check if progress entry exists
                 cursor.execute("""
-                    SELECT id FROM study_progress
+                    SELECT id, current_bloom_level, correct_answers_count 
+                    FROM study_progress
                     WHERE user_id = %s AND study_plan_item_id = %s
                 """, (user_id, topic_id))
                 progress = cursor.fetchone()
                 
                 if progress:
                     # Update existing progress
-                    if is_completed:
-                        cursor.execute("""
-                            UPDATE study_progress
-                            SET current_bloom_level = %s, is_completed = %s, completed_at = CURRENT_TIMESTAMP
-                            WHERE user_id = %s AND study_plan_item_id = %s
-                        """, (new_bloom_level, is_completed, user_id, topic_id))
+                    if is_correct:
+                        # Увеличиваем счетчик правильных ответов
+                        new_count = progress[2] + 1 if progress[2] is not None else 1
+                        
+                        if is_completed:
+                            cursor.execute("""
+                                UPDATE study_progress
+                                SET current_bloom_level = %s, is_completed = %s, 
+                                    completed_at = CURRENT_TIMESTAMP, correct_answers_count = %s
+                                WHERE user_id = %s AND study_plan_item_id = %s
+                            """, (new_bloom_level, is_completed, new_count, user_id, topic_id))
+                        else:
+                            cursor.execute("""
+                                UPDATE study_progress
+                                SET current_bloom_level = %s, is_completed = %s, 
+                                    last_attempt_at = CURRENT_TIMESTAMP, correct_answers_count = %s
+                                WHERE user_id = %s AND study_plan_item_id = %s
+                            """, (new_bloom_level, is_completed, new_count, user_id, topic_id))
                     else:
-                        cursor.execute("""
-                            UPDATE study_progress
-                            SET current_bloom_level = %s, is_completed = %s, last_attempt_at = CURRENT_TIMESTAMP
-                            WHERE user_id = %s AND study_plan_item_id = %s
-                        """, (new_bloom_level, is_completed, user_id, topic_id))
+                        # Неверный ответ, сбрасываем счетчик правильных ответов
+                        if is_completed:
+                            cursor.execute("""
+                                UPDATE study_progress
+                                SET current_bloom_level = %s, is_completed = %s, 
+                                    completed_at = CURRENT_TIMESTAMP, correct_answers_count = 0
+                                WHERE user_id = %s AND study_plan_item_id = %s
+                            """, (new_bloom_level, is_completed, user_id, topic_id))
+                        else:
+                            cursor.execute("""
+                                UPDATE study_progress
+                                SET current_bloom_level = %s, is_completed = %s, 
+                                    last_attempt_at = CURRENT_TIMESTAMP, correct_answers_count = 0
+                                WHERE user_id = %s AND study_plan_item_id = %s
+                            """, (new_bloom_level, is_completed, user_id, topic_id))
                 else:
                     # Create new progress entry
                     cursor.execute("""
                         INSERT INTO study_progress
-                        (user_id, study_plan_item_id, current_bloom_level, is_completed)
-                        VALUES (%s, %s, %s, %s)
-                    """, (user_id, topic_id, new_bloom_level, is_completed))
+                        (user_id, study_plan_item_id, current_bloom_level, is_completed, correct_answers_count)
+                        VALUES (%s, %s, %s, %s, %s)
+                    """, (user_id, topic_id, new_bloom_level, is_completed, 1 if is_correct else 0))
                 
                 self.connection.commit()
                 logger.info(f"Topic progress updated for user {user_id}")
