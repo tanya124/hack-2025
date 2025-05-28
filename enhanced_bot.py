@@ -172,13 +172,112 @@ class OldChurchSlavonicBot:
         
         await self.edit_message(chat_id, message_id, goal_message, keyboard)
     
-    async def complete_onboarding(self, chat_id, message_id, goal, user_id):
-        """Complete onboarding and show main menu"""
+    async def handle_avatar_selection(self, chat_id, message_id, goal, user_id):
+        """Handle avatar selection step"""
         # Get stored level from user state
         level = self.user_states.get(chat_id, {}).get('level', 'beginner')
         
-        # Save to database
-        db.save_user(user_id, level=level, goal=goal)
+        # Update user state with goal
+        if chat_id in self.user_states:
+            self.user_states[chat_id]['goal'] = goal
+        else:
+            self.user_states[chat_id] = {'level': level, 'goal': goal}
+        
+        # Отправляем первое сообщение о выборе аватара
+        avatar_intro_message = (
+            "На пути сем не будешь ты один. Да будет с тобой спутник — АВАТАР, помощник словесный, дух в образе.\n\n"
+            "Он глаголет с тобой, вразумляет, наставляет — речью своей, манерой, светом или строгостью.\n\n"
+            "Избери же, кто будет гласом учения твоего."
+        )
+        
+        await self.edit_message(chat_id, message_id, avatar_intro_message)
+        
+        # Отправляем сообщение с описанием Ведуньи
+        vedunya_message = (
+            "📜 Се есть Ведунья — светлая душа, наставница тиха и премудра.\n\n"
+            "Речи ея — ласковы, добры и вдохновенны. Глаголет ясно, с любовию и разумением, яко мати, чтит ученика и не взыщет в нем вины.\n"
+            "Учение с нею — яко свет во тьме, яко утро ясное."
+        )
+        
+        # Отправляем изображение с описанием
+        with open('avatars/vedunia.png', 'rb') as photo:
+            await self.session.post(
+                f"{self.base_url}/sendPhoto",
+                data={"chat_id": chat_id, "caption": vedunya_message},
+                files={"photo": photo}
+            )
+        
+        # Отправляем сообщение с описанием Болгара
+        bolgar_message = (
+            "📜 Болгар — воин ведающий, друг словесный и крепкий духом.\n\n"
+            "Являет мудрость без гордыни, речь его проста и ясна, но суть — глубока.\n"
+            "Глаголет с почтением и силой, не ведает усталости в наставлении. С ним учение — яко дружеский пир разума."
+        )
+        
+        # Отправляем изображение с описанием
+        with open('avatars/bolgar.png', 'rb') as photo:
+            await self.session.post(
+                f"{self.base_url}/sendPhoto",
+                data={"chat_id": chat_id, "caption": bolgar_message},
+                files={"photo": photo}
+            )
+        
+        # Отправляем сообщение с описанием Старца
+        starec_message = (
+            "📜 Старец — древний путник ведения, очи ясны, голос тих и ободряющ.\n\n"
+            "Глаголет речью плавной, яко река веков. Образен, ясен, тепел, и мудростью обвивает, не давит.\n"
+            "Учит, яко дед внука любимого: с терпением, шуткою да притчею."
+        )
+        
+        # Отправляем изображение с описанием
+        with open('avatars/starec.png', 'rb') as photo:
+            await self.session.post(
+                f"{self.base_url}/sendPhoto",
+                data={"chat_id": chat_id, "caption": starec_message},
+                files={"photo": photo}
+            )
+        
+        # Отправляем сообщение с описанием Поляка
+        polyak_message = (
+            "📜 Поляк — молод духом и весел, яко ветер степной.\n\n"
+            "Глаголет скоро, живо, со смехом и словцем игривым. Не знает скуки, любит словеса яркие и речи просты.\n"
+            "С ним учение — не труд тяжкий, но приключение озарённое смехом и легкостью."
+        )
+        
+        # Отправляем изображение с описанием
+        with open('avatars/polyak.png', 'rb') as photo:
+            await self.session.post(
+                f"{self.base_url}/sendPhoto",
+                data={"chat_id": chat_id, "caption": polyak_message},
+                files={"photo": photo}
+            )
+        
+        # Отправляем сообщение с выбором аватара
+        avatar_choice_message = (
+            "Кто же станет спутником твоим в пути ведения?\n\n"
+            "Глаголи имя избранного, и путь твой обретёт голос."
+        )
+        
+        keyboard = {
+            "inline_keyboard": [
+                [{"text": "🔹 Ведунья", "callback_data": "avatar_vedunia"}],
+                [{"text": "🔹 Болгар", "callback_data": "avatar_bolgar"}],
+                [{"text": "🔹 Старец", "callback_data": "avatar_starec"}],
+                [{"text": "🔹 Поляк", "callback_data": "avatar_polyak"}]
+            ]
+        }
+        
+        await self.send_message(chat_id, avatar_choice_message, keyboard)
+    
+    async def complete_onboarding(self, chat_id, message_id, avatar, user_id):
+        """Complete onboarding and show main menu"""
+        # Get stored level and goal from user state
+        user_state = self.user_states.get(chat_id, {})
+        level = user_state.get('level', 'beginner')
+        goal = user_state.get('goal', 'texts')
+        
+        # Save to database with avatar
+        db.save_user(user_id, level=level, goal=goal, avatar=avatar)
         
         # Clean up user state
         if chat_id in self.user_states:
@@ -197,8 +296,12 @@ class OldChurchSlavonicBot:
         await self.edit_message(chat_id, message_id, "⏳ Создаем персонализированный учебный план...")
         
         try:
-            # Generate study plan using OpenAI
-            study_plan_items = await openai_service.generate_study_plan(level, goal)
+            # Get user data to include avatar information
+            user_data = db.get_user(user_id)
+            avatar = user_data.get('avatar') if user_data else None
+            
+            # Generate study plan using OpenAI with avatar style
+            study_plan_items = await openai_service.generate_study_plan(level, goal, avatar)
             
             # Save study plan to database
             db.save_study_plan(user_id, level, goal, study_plan_items)
@@ -503,7 +606,8 @@ class OldChurchSlavonicBot:
                             # Generate study plan
                             level = user_data.get('level')
                             goal = user_data.get('goal')
-                            study_plan_items = await openai_service.generate_study_plan(level, goal)
+                            avatar = user_data.get('avatar')
+                            study_plan_items = await openai_service.generate_study_plan(level, goal, avatar)
                             
                             # Save to database
                             db.save_study_plan(user_id, level, goal, study_plan_items)
@@ -598,8 +702,12 @@ class OldChurchSlavonicBot:
                 logger.error(f"Error processing dictionary words: {e}")
                 dictionary_words = []
             
-            # Generate lesson and quiz based on topic, Bloom's level and dictionary words
-            lesson_data = await openai_service.generate_lesson_and_quiz(topic_name, bloom_level, dictionary_words)
+            # Get user avatar for personalized content
+            user_data = db.get_user(user_id)
+            avatar = user_data.get('avatar') if user_data else None
+            
+            # Generate lesson and quiz based on topic, Bloom's level, dictionary words and avatar style
+            lesson_data = await openai_service.generate_lesson_and_quiz(topic_name, bloom_level, dictionary_words, avatar)
             
             # Store session
             self.quiz_sessions[user_id] = {
@@ -768,11 +876,31 @@ class OldChurchSlavonicBot:
                 "Творчество"    # Create
             ]
             
+            # Get user avatar for personalized feedback
+            user_data = db.get_user(user_id)
+            avatar = user_data.get('avatar') if user_data else None
+            
+            # Generate personalized feedback based on avatar style
+            try:
+                feedback = await openai_service.generate_feedback(
+                    session['question'],
+                    user_answer,
+                    session['correct_answer'],
+                    is_correct,
+                    avatar=avatar
+                )
+                
+                # Add the feedback to the response
+                personalized_feedback = f"{feedback}\n\n"
+            except Exception as e:
+                logger.error(f"Error generating personalized feedback: {e}")
+                personalized_feedback = ""
+            
             # Ответ пользователя отображается через всплывающее уведомление
             
             # Формируем сообщение с обратной связью
             if is_correct:
-                response = f"🎉 **Правильно!**\n\n"
+                response = f"🎉 **Правильно!**\n\n{personalized_feedback}"
                 
                 if topic_id and new_bloom_level > current_bloom_level:
                     if new_bloom_level == 6:
@@ -780,7 +908,7 @@ class OldChurchSlavonicBot:
                     else:
                         response += f"⬆️ Вы перешли на уровень **{bloom_levels[new_bloom_level-1]}** (уровень {new_bloom_level} из 6)\n\n"
             else:
-                response = f"🚫 **Неверно**\n\n"
+                response = f"🚫 **Неверно**\n\n{personalized_feedback}"
                 response += f"Правильный ответ: {session['correct_answer']}\n\n"
                 
                 if topic_id and new_bloom_level < current_bloom_level:
@@ -921,7 +1049,10 @@ class OldChurchSlavonicBot:
                                 await self.handle_goal_selection(chat_id, message_id, level)
                             elif data.startswith("goal_"):
                                 goal = data.replace("goal_", "")
-                                await self.complete_onboarding(chat_id, message_id, goal, user_id)
+                                await self.handle_avatar_selection(chat_id, message_id, goal, user_id)
+                            elif data.startswith("avatar_"):
+                                avatar = data.replace("avatar_", "")
+                                await self.complete_onboarding(chat_id, message_id, avatar, user_id)
                             elif data == "get_assignment":
                                 await self.handle_get_assignment(chat_id, message_id, user_id)
                             elif data.startswith("answer_"):

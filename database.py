@@ -60,6 +60,7 @@ class Database:
                         first_name VARCHAR(255),
                         level VARCHAR(50),
                         goal VARCHAR(100),
+                        avatar VARCHAR(50),
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
@@ -79,8 +80,22 @@ class Database:
                         """)
                         self.connection.commit()
                         logger.info("Added current_topic_id column to users table")
+                        
+                    # Проверяем и добавляем колонку avatar, если она не существует
+                    cursor.execute("""
+                        SELECT column_name 
+                        FROM information_schema.columns 
+                        WHERE table_name = 'users' AND column_name = 'avatar'
+                    """)
+                    if not cursor.fetchone():
+                        cursor.execute("""
+                            ALTER TABLE users 
+                            ADD COLUMN avatar VARCHAR(50)
+                        """)
+                        self.connection.commit()
+                        logger.info("Added avatar column to users table")
                 except Exception as e:
-                    logger.error(f"Error checking or adding current_topic_id column: {e}")
+                    logger.error(f"Error checking or adding columns to users table: {e}")
                 
                 # Old Progress table (keeping for backward compatibility)
                 cursor.execute("""
@@ -141,22 +156,23 @@ class Database:
             logger.error(f"Failed to create tables: {e}")
             self.connection.rollback()
     
-    def save_user(self, user_id, username=None, first_name=None, level=None, goal=None):
+    def save_user(self, user_id, username=None, first_name=None, level=None, goal=None, avatar=None):
         """Save or update user information"""
         try:
             self.ensure_connection()
             with self.connection.cursor() as cursor:
                 cursor.execute("""
-                    INSERT INTO users (user_id, username, first_name, level, goal)
-                    VALUES (%s, %s, %s, %s, %s)
+                    INSERT INTO users (user_id, username, first_name, level, goal, avatar)
+                    VALUES (%s, %s, %s, %s, %s, %s)
                     ON CONFLICT (user_id) 
                     DO UPDATE SET 
                         username = COALESCE(EXCLUDED.username, users.username),
                         first_name = COALESCE(EXCLUDED.first_name, users.first_name),
                         level = COALESCE(EXCLUDED.level, users.level),
                         goal = COALESCE(EXCLUDED.goal, users.goal),
+                        avatar = COALESCE(EXCLUDED.avatar, users.avatar),
                         updated_at = CURRENT_TIMESTAMP
-                """, (user_id, username, first_name, level, goal))
+                """, (user_id, username, first_name, level, goal, avatar))
                 self.connection.commit()
                 logger.info(f"User {user_id} saved successfully")
         except Exception as e:

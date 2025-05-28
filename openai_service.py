@@ -112,17 +112,30 @@ class OpenAIService:
             logger.error(f"Unexpected error in generate_lesson_and_quiz: {e}")
             raise Exception("Произошла неожиданная ошибка. Попробуйте снова.")
     
-    async def generate_feedback(self, question, user_answer, correct_answer, is_correct):
+    async def generate_feedback(self, question, user_answer, correct_answer, is_correct, avatar=None):
         """
         Generate feedback for the user's answer using OpenAI
         """
         try:
+            # Define avatar communication styles
+            avatar_styles = {
+                "vedunia": "Speak with warmth, wisdom, and encouragement. Use rich but understandable language. Be supportive and motherly.",
+                "bolgar": "Speak with clarity, depth, and honor. Be friendly and respectful. Convey a sense of being a reliable ally.",
+                "starec": "Speak in a calm, encouraging, and wise manner. Use meditative speech with notes of antiquity. Talk as if a grandfather to a grandson.",
+                "polyak": "Speak in a modern, playful, and lively style. Use youth language, humor, simplicity, and vigor."
+            }
+            
+            # Get the avatar style instruction
+            avatar_style = ""
+            if avatar and avatar in avatar_styles:
+                avatar_style = f"\n\nCommunication style: {avatar_styles[avatar]}\n"
+            
             feedback_prompt = f"""
             Пользователь отвечал на вопрос по межславянскому языку:
             Вопрос: {question}
             Правильный ответ: {correct_answer}
             Ответ пользователя: {user_answer}
-            Результат: {'правильно' if is_correct else 'неправильно'}
+            Результат: {'правильно' if is_correct else 'неправильно'}{avatar_style}
             
             Дай краткую обратную связь (1-2 предложения) на русском языке. 
             Если ответ правильный - похвали и добавь интересный факт.
@@ -157,16 +170,29 @@ class OpenAIService:
             else:
                 return f"❌ Неправильно. Правильный ответ: {correct_answer}"
 
-    async def generate_study_plan(self, level, goal):
+    async def generate_study_plan(self, level, goal, avatar=None):
         """
         Generate a study plan for learning Inter-Slavic based on user level and goal
         Returns a list of study plan items with topics, descriptions, and Bloom's taxonomy levels
         """
         try:
+            # Define avatar communication styles
+            avatar_styles = {
+                "vedunia": "Speak with warmth, wisdom, and encouragement. Use rich but understandable language. Be supportive and motherly.",
+                "bolgar": "Speak with clarity, depth, and honor. Be friendly and respectful. Convey a sense of being a reliable ally.",
+                "starec": "Speak in a calm, encouraging, and wise manner. Use meditative speech with notes of antiquity. Talk as if a grandfather to a grandson.",
+                "polyak": "Speak in a modern, playful, and lively style. Use youth language, humor, simplicity, and vigor."
+            }
+            
+            # Get the avatar style instruction
+            avatar_style = ""
+            if avatar and avatar in avatar_styles:
+                avatar_style = f"\n\nCommunication style: {avatar_styles[avatar]}\n"
+            
             prompt = f"""
             Create a study plan for learning Inter-Slavic (межславянский язык) for a user with level "{level}" 
             and learning goal "{goal}". The plan should be based on the textbook "Interslavic zonal contructed language: An introduction" 
-            and contain sequential topics for study.
+            and contain sequential topics for study.{avatar_style}
             
             For each topic, provide:
             1. Topic name (short, 3-5 words)
@@ -233,7 +259,7 @@ class OpenAIService:
             logger.error(f"Failed to generate study plan: {e}")
             raise Exception("Error generating study plan. Please try again.")
     
-    async def generate_lesson_and_quiz(self, topic=None, bloom_level=None, dictionary_words=None):
+    async def generate_lesson_and_quiz(self, topic=None, bloom_level=None, dictionary_words=None, avatar=None):
         """
         Generate a micro-lesson and quiz about Inter-Slavic using OpenAI API
         Returns a dictionary with lesson, question, options, and correct_answer
@@ -277,13 +303,26 @@ class OpenAIService:
                     
                     dictionary_content += ", ".join(translations) + "\n"
             
+            # Define avatar communication styles
+            avatar_styles = {
+                "vedunia": "Speak with warmth, wisdom, and encouragement. Use rich but understandable language. Be supportive and motherly.",
+                "bolgar": "Speak with clarity, depth, and honor. Be friendly and respectful. Convey a sense of being a reliable ally.",
+                "starec": "Speak in a calm, encouraging, and wise manner. Use meditative speech with notes of antiquity. Talk as if a grandfather to a grandson.",
+                "polyak": "Speak in a modern, playful, and lively style. Use youth language, humor, simplicity, and vigor."
+            }
+            
+            # Get the avatar style instruction
+            avatar_style = ""
+            if avatar and avatar in avatar_styles:
+                avatar_style = f"\n\nCommunication style: {avatar_styles[avatar]}\n"
+            
             if topic and bloom_level:
                 # Generate content specific to the topic and Bloom's level
                 task_type = task_types.get(bloom_level, "Слово дня")
                 
                 prompt = f"""
                 Create a micro-lesson about Inter-Slavic (межславянский язык) on the topic "{topic}" 
-                with difficulty level {bloom_level} (Bloom's taxonomy).
+                with difficulty level {bloom_level} (Bloom's taxonomy).{avatar_style}
                 
                 Task type: "{task_type}"
                 
