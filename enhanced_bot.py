@@ -92,6 +92,8 @@ class OldChurchSlavonicBot:
         
         # Check if user is already onboarded
         existing_user = db.get_user(user_id)
+        
+        logger.info(f"User {user_id} ({username}) onboarded: {existing_user}")
         if existing_user and existing_user.get('level') and existing_user.get('goal'):
             await self.show_main_menu(chat_id, first_name)
             return

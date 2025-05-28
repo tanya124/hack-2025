@@ -3,6 +3,11 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from config import logger
 from datetime import datetime
+from dotenv import load_dotenv
+
+
+# Load environment variables from .env file
+load_dotenv()
 
 class Database:
     def __init__(self):
@@ -11,8 +16,10 @@ class Database:
             'database': os.getenv('PGDATABASE'),
             'user': os.getenv('PGUSER'),
             'password': os.getenv('PGPASSWORD'),
-            'port': os.getenv('PGPORT')
+            'port': int(os.getenv('PGPORT', '5432'))
         }
+        logger.info(f"Database connection params: host={os.getenv('PGHOST')}, db={os.getenv('PGDATABASE')}, user={os.getenv('PGUSER')}, port={os.getenv('PGPORT')}")
+
         self.connection = None
         self.connect()
         self.create_tables()
