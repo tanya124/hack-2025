@@ -1,13 +1,13 @@
 [tool.poetry]
 name = "repl-nix-workspace"
 version = "0.1.0"
-description = "Old Church Slavonic learning Telegram bot"
+description = "Inter-Slavic learning Telegram bot"
 authors = ["Your Name <your.email@example.com>"]
 readme = "README.md"
 packages = [{include = "*"}]
 
 [tool.poetry.dependencies]
-python = ">=3.11"
+python = "3.11.11"
 httpx = ">=0.25.2"
 openai = ">=1.82.0"
 psycopg2-binary = ">=2.9.10"

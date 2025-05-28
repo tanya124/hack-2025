@@ -187,7 +187,52 @@ class OldChurchSlavonicBot:
         user_data = db.get_user(user_id)
         first_name = user_data.get('first_name', 'друг') if user_data else 'друг'
         
-        await self.show_main_menu(chat_id, first_name, message_id)
+        # Generate study plan
+        await self.generate_study_plan(chat_id, message_id, user_id, level, goal)
+    
+    async def generate_study_plan(self, chat_id, message_id, user_id, level, goal):
+        """Generate a study plan for the user"""
+        # Show loading message
+        await self.edit_message(chat_id, message_id, "⏳ Создаем персонализированный учебный план...")
+        
+        try:
+            # Generate study plan using OpenAI
+            study_plan_items = await openai_service.generate_study_plan(level, goal)
+            
+            # Save study plan to database
+            db.save_study_plan(user_id, level, goal, study_plan_items)
+            
+            # Show success message
+            success_message = (
+                "📚 **Ваш персонализированный учебный план готов!**\n\n"
+                f"Уровень: **{level}**\n"
+                f"Цель: **{goal}**\n\n"
+                "Мы подготовили для вас последовательность тем, которые помогут вам эффективно изучить межславянский язык. "
+                "Каждая тема включает теорию и практические задания разных уровней сложности.\n\n"
+                "Нажмите кнопку ниже, чтобы начать обучение или просмотреть полный учебный план."
+            )
+            
+            keyboard = {
+                "inline_keyboard": [
+                    [{"text": "📖 Начать обучение", "callback_data": "get_assignment"}],
+                    [{"text": "📋 Учебный план", "callback_data": "show_study_plan"}]
+                ]
+            }
+            
+            await self.edit_message(chat_id, message_id, success_message, keyboard)
+            
+        except Exception as e:
+            logger.error(f"Error creating study plan: {e}")
+            await self.edit_message(
+                chat_id, 
+                message_id,
+                "😔 Произошла ошибка при создании учебного плана. Попробуйте снова.",
+                {"inline_keyboard": [[{"text": "🔄 Попробовать снова", "callback_data": "start"}]]}
+            )
+            # Show main menu as fallback
+            user_data = db.get_user(user_id)
+            first_name = user_data.get('first_name', 'друг') if user_data else 'друг'
+            await self.show_main_menu(chat_id, first_name, message_id)
     
     async def show_main_menu(self, chat_id, first_name, message_id=None):
         """Show main menu with options"""
@@ -195,12 +240,14 @@ class OldChurchSlavonicBot:
             f"Добро пожаловать, {first_name}!\n\n"
             "Путь твой определён. Что желаешь сотворити?\n\n"
             "📖 **Получить задание** — новый урок и испытание\n"
+            "📋 **Учебный план** — твой путь познания\n"
             "📜 **Посмотреть прогресс** — летопись твоих достижений"
         )
         
         keyboard = {
             "inline_keyboard": [
                 [{"text": "📖 Получить задание", "callback_data": "get_assignment"}],
+                [{"text": "📋 Учебный план", "callback_data": "show_study_plan"}],
                 [{"text": "📜 Посмотреть прогресс", "callback_data": "show_progress"}]
             ]
         }
@@ -209,6 +256,217 @@ class OldChurchSlavonicBot:
             await self.edit_message(chat_id, message_id, main_message, keyboard)
         else:
             await self.send_message(chat_id, main_message, keyboard)
+    
+    async def show_study_plan(self, chat_id, message_id, user_id):
+        """Show the user's study plan"""
+        try:
+            study_plan = db.get_user_study_plan(user_id)
+            
+            if not study_plan:
+                # Если у пользователя нет учебного плана, получим его данные и сгенерируем план
+                user_data = db.get_user(user_id)
+                
+                if not user_data or not user_data.get('level') or not user_data.get('goal'):
+                    # Если у пользователя нет данных о уровне и цели, предложим начать с начала
+                    await self.edit_message(
+                        chat_id,
+                        message_id,
+                        "У вас еще нет учебного плана. Начните обучение с команды /start.",
+                        {"inline_keyboard": [[{"text": "🏠 Главное меню", "callback_data": "main_menu"}]]}
+                    )
+                    return
+                
+                # Показываем сообщение о генерации учебного плана
+                await self.edit_message(
+                    chat_id,
+                    message_id,
+                    "⏳ Создаем персонализированный учебный план..."
+                )
+                
+                # Генерируем учебный план
+                level = user_data.get('level', 'beginner')
+                goal = user_data.get('goal', 'texts')
+                
+                try:
+                    # Генерируем план с помощью OpenAI
+                    study_plan_items = await openai_service.generate_study_plan(level, goal)
+                    
+                    # Сохраняем план в базу данных
+                    db.save_study_plan(user_id, level, goal, study_plan_items)
+                    
+                    # Получаем обновленный план из базы данных
+                    study_plan = db.get_user_study_plan(user_id)
+                    
+                    if not study_plan:
+                        # Если что-то пошло не так
+                        await self.edit_message(
+                            chat_id,
+                            message_id,
+                            "😔 Произошла ошибка при создании учебного плана. Попробуйте снова.",
+                            {"inline_keyboard": [[{"text": "🏠 Главное меню", "callback_data": "main_menu"}]]}
+                        )
+                        return
+                except Exception as e:
+                    logger.error(f"Error generating study plan: {e}")
+                    await self.edit_message(
+                        chat_id,
+                        message_id,
+                        "😔 Произошла ошибка при создании учебного плана. Попробуйте снова.",
+                        {"inline_keyboard": [[{"text": "🏠 Главное меню", "callback_data": "main_menu"}]]}
+                    )
+                    return
+                
+            # Format message with study plan
+            message = "📚 **Ваш учебный план**\n\n"
+            
+            for item in study_plan["items"]:
+                # Add status emoji
+                status = "✅" if item["is_completed"] else "🔄" if item["current_bloom_level"] > 1 else "⏳"
+                
+                # Add stars to indicate current Bloom's level
+                bloom_stars = "⭐" * item["current_bloom_level"]
+                
+                message += f"{status} **{item['topic']}**\n"
+                message += f"_{item['description']}_\n"
+                message += f"Прогресс: {bloom_stars} ({item['current_bloom_level']}/6)\n\n"
+            
+            # Add navigation buttons
+            keyboard = {
+                "inline_keyboard": [
+                    [
+                        {"text": "◀️ Предыдущая тема", "callback_data": "prev_topic"},
+                        {"text": "Следующая тема ▶️", "callback_data": "next_topic"}
+                    ],
+                    [{"text": "📖 Получить задание", "callback_data": "get_assignment"}],
+                    [{"text": "🏠 Главное меню", "callback_data": "main_menu"}]
+                ]
+            }
+            
+            await self.edit_message(chat_id, message_id, message, keyboard)
+                
+        except Exception as e:
+            logger.error(f"Error showing study plan: {e}")
+            await self.edit_message(
+                chat_id,
+                message_id,
+                "😔 Произошла ошибка при загрузке учебного плана.",
+                {"inline_keyboard": [[{"text": "🏠 Главное меню", "callback_data": "main_menu"}]]}
+            )
+    
+    async def handle_next_topic(self, chat_id, message_id, user_id):
+        """Navigate to the next topic"""
+        try:
+            # Get current topic
+            current_topic = db.get_current_topic(user_id)
+            
+            if not current_topic:
+                await self.edit_message(
+                    chat_id, 
+                    message_id,
+                    "Вы уже прошли все темы в учебном плане! 🎉",
+                    {"inline_keyboard": [[{"text": "📖 Получить задание", "callback_data": "get_assignment"}]]}
+                )
+                return
+                
+            # Get next topic
+            next_topic = db.get_next_topic(user_id, current_topic["id"])
+            
+            if not next_topic:
+                await self.edit_message(
+                    chat_id, 
+                    message_id,
+                    "Это последняя тема в вашем учебном плане.",
+                    {"inline_keyboard": [
+                        [{"text": "📖 Получить задание", "callback_data": "get_assignment"}],
+                        [{"text": "📋 Учебный план", "callback_data": "show_study_plan"}]
+                    ]}
+                )
+                return
+                
+            # Update current topic
+            db.set_current_topic(user_id, next_topic["id"])
+            
+            # Send information about the new topic
+            message = f"📚 **Новая тема: {next_topic['topic']}**\n\n"
+            message += f"_{next_topic['description']}_\n\n"
+            message += "Нажмите кнопку ниже, чтобы получить задание по этой теме."
+            
+            keyboard = {
+                "inline_keyboard": [
+                    [{"text": "📖 Получить задание", "callback_data": "get_assignment"}],
+                    [{"text": "📋 Учебный план", "callback_data": "show_study_plan"}],
+                    [{"text": "🏠 Главное меню", "callback_data": "main_menu"}]
+                ]
+            }
+            
+            await self.edit_message(chat_id, message_id, message, keyboard)
+            
+        except Exception as e:
+            logger.error(f"Error navigating to next topic: {e}")
+            await self.edit_message(
+                chat_id, 
+                message_id,
+                "😔 Произошла ошибка при переходе к следующей теме.",
+                {"inline_keyboard": [[{"text": "📋 Учебный план", "callback_data": "show_study_plan"}]]}
+            )
+    
+    async def handle_prev_topic(self, chat_id, message_id, user_id):
+        """Navigate to the previous topic"""
+        try:
+            # Get current topic
+            current_topic = db.get_current_topic(user_id)
+            
+            if not current_topic:
+                await self.edit_message(
+                    chat_id, 
+                    message_id,
+                    "У вас нет активной темы. Начните обучение с получения задания.",
+                    {"inline_keyboard": [[{"text": "📖 Получить задание", "callback_data": "get_assignment"}]]}
+                )
+                return
+                
+            # Get previous topic
+            prev_topic = db.get_prev_topic(user_id, current_topic["id"])
+            
+            if not prev_topic:
+                await self.edit_message(
+                    chat_id, 
+                    message_id,
+                    "Это первая тема в вашем учебном плане.",
+                    {"inline_keyboard": [
+                        [{"text": "📖 Получить задание", "callback_data": "get_assignment"}],
+                        [{"text": "📋 Учебный план", "callback_data": "show_study_plan"}]
+                    ]}
+                )
+                return
+                
+            # Update current topic
+            db.set_current_topic(user_id, prev_topic["id"])
+            
+            # Send information about the new topic
+            message = f"📚 **Возврат к теме: {prev_topic['topic']}**\n\n"
+            message += f"_{prev_topic['description']}_\n\n"
+            message += "Нажмите кнопку ниже, чтобы получить задание по этой теме."
+            
+            keyboard = {
+                "inline_keyboard": [
+                    [{"text": "📖 Получить задание", "callback_data": "get_assignment"}],
+                    [{"text": "📋 Учебный план", "callback_data": "show_study_plan"}],
+                    [{"text": "🏠 Главное меню", "callback_data": "main_menu"}]
+                ]
+            }
+            
+            await self.edit_message(chat_id, message_id, message, keyboard)
+            
+        except Exception as e:
+            logger.error(f"Error navigating to previous topic: {e}")
+            await self.edit_message(
+                chat_id, 
+                message_id,
+                "😔 Произошла ошибка при переходе к предыдущей теме.",
+                {"inline_keyboard": [[{"text": "📋 Учебный план", "callback_data": "show_study_plan"}]]}
+            )
+
     
     async def handle_get_assignment(self, chat_id, message_id, user_id):
         """Handle get assignment request"""
@@ -220,8 +478,127 @@ class OldChurchSlavonicBot:
         await self.edit_message(chat_id, message_id, "⏳ Генерируем новое задание...")
         
         try:
-            # Generate lesson and quiz
-            lesson_data = await openai_service.generate_lesson_and_quiz()
+            # Get current topic from study plan
+            current_topic = db.get_current_topic(user_id)
+            
+            # If no current topic is set, check if user has a study plan
+            if not current_topic:
+                study_plan = db.get_user_study_plan(user_id)
+                
+                # If no study plan exists, try to generate one
+                if not study_plan:
+                    # Get user data
+                    user_data = db.get_user(user_id)
+                    
+                    if user_data and user_data.get('level') and user_data.get('goal'):
+                        # Show generating message
+                        await self.edit_message(
+                            chat_id,
+                            message_id,
+                            "⏳ Создаем персонализированный учебный план..."
+                        )
+                        
+                        try:
+                            # Generate study plan
+                            level = user_data.get('level')
+                            goal = user_data.get('goal')
+                            study_plan_items = await openai_service.generate_study_plan(level, goal)
+                            
+                            # Save to database
+                            db.save_study_plan(user_id, level, goal, study_plan_items)
+                            
+                            # Get updated study plan
+                            study_plan = db.get_user_study_plan(user_id)
+                        except Exception as e:
+                            logger.error(f"Error generating study plan in get_assignment: {e}")
+                            await self.edit_message(
+                                chat_id,
+                                message_id,
+                                "😔 Произошла ошибка при создании учебного плана.",
+                                {"inline_keyboard": [[{"text": "🏠 Главное меню", "callback_data": "main_menu"}]]}
+                            )
+                            return
+                    else:
+                        # If user hasn't completed onboarding, redirect them
+                        await self.edit_message(
+                            chat_id,
+                            message_id,
+                            "Для получения заданий необходимо сначала завершить настройку. Начните с команды /start.",
+                            {"inline_keyboard": [[{"text": "🏠 Главное меню", "callback_data": "main_menu"}]]}
+                        )
+                        return
+                
+                # If we have a study plan now, set the first topic as current
+                if study_plan and study_plan["items"]:
+                    current_topic = study_plan["items"][0]
+                    db.set_current_topic(user_id, current_topic["id"])
+            
+            # Get the current Bloom's taxonomy level for this topic
+            bloom_level = 1  # Default to level 1 (remember)
+            if current_topic:
+                bloom_level = current_topic.get("current_bloom_level", 1)
+                topic_name = current_topic.get("topic", "")
+            else:
+                # Fallback if no study plan exists despite our attempts
+                topic_name = "Основы межславянского языка"
+            
+            # Получаем слова из словаря для использования в задании
+            try:
+                # Получаем случайные слова из словаря
+                dictionary_words = db.get_random_words()
+                logger.info(f"Got {len(dictionary_words)} dictionary words for assignment")
+                
+                # Выбираем слова в зависимости от уровня пользователя и уровня Блума
+                # Получаем уровень пользователя
+                user_data = db.get_user(user_id)
+                user_level = user_data.get('level', 'beginner') if user_data else 'beginner'
+                
+                # Фильтруем слова в зависимости от уровня сложности
+                filtered_words = []
+                
+                # Простой алгоритм фильтрации на основе уровня пользователя и Блума
+                for word in dictionary_words:
+                    # Для начинающих выбираем слова с высокой понятностью
+                    if user_level == 'beginner':
+                        # Для начальных уровней Блума выбираем существительные
+                        if bloom_level <= 2 and word.get('partOfSpeech') and 'n.' in word.get('partOfSpeech'):
+                            filtered_words.append(word)
+                        # Для уровня 3-4 добавляем прилагательные
+                        elif bloom_level in [3, 4] and word.get('partOfSpeech') and 'adj.' in word.get('partOfSpeech'):
+                            filtered_words.append(word)
+                        # Для высоких уровней добавляем глаголы
+                        elif bloom_level >= 5 and word.get('partOfSpeech') and 'v.' in word.get('partOfSpeech'):
+                            filtered_words.append(word)
+                    # Для среднего уровня добавляем больше разнообразия
+                    elif user_level == 'intermediate':
+                        # Добавляем слова с учетом уровня Блума
+                        if bloom_level <= 3 or word.get('partOfSpeech'):
+                            filtered_words.append(word)
+                    # Для продвинутого уровня добавляем все слова
+                    else:  # advanced
+                        filtered_words.append(word)
+                
+                # Если после фильтрации осталось мало слов, добавляем еще из общего списка
+                if len(filtered_words) < 5:
+                    # Добавляем случайные слова до минимума 5
+                    remaining_words = [w for w in dictionary_words if w not in filtered_words]
+                    import random
+                    random.shuffle(remaining_words)
+                    filtered_words.extend(remaining_words[:max(5 - len(filtered_words), 0)])
+                
+                # Ограничиваем количество слов до 10 для промпта
+                if len(filtered_words) > 10:
+                    import random
+                    filtered_words = random.sample(filtered_words, 10)
+                
+                logger.info(f"Filtered to {len(filtered_words)} words based on user level '{user_level}' and Bloom level {bloom_level}")
+                dictionary_words = filtered_words
+            except Exception as e:
+                logger.error(f"Error processing dictionary words: {e}")
+                dictionary_words = []
+            
+            # Generate lesson and quiz based on topic, Bloom's level and dictionary words
+            lesson_data = await openai_service.generate_lesson_and_quiz(topic_name, bloom_level, dictionary_words)
             
             # Store session
             self.quiz_sessions[user_id] = {
@@ -231,11 +608,23 @@ class OldChurchSlavonicBot:
                 'correct_answer': lesson_data['correct_answer'],
                 'answered': False,
                 'chat_id': chat_id,
-                'message_id': message_id
+                'message_id': message_id,
+                'topic_id': current_topic["id"] if current_topic else None,
+                'bloom_level': bloom_level
             }
             
             # Format message
-            message = f"📚 **Урок по старославянскому языку**\n\n"
+            bloom_levels = [
+                "Запоминание",  # Remember
+                "Понимание",     # Understand
+                "Применение",   # Apply
+                "Анализ",        # Analyze
+                "Оценка",        # Evaluate
+                "Творчество"    # Create
+            ]
+            
+            message = f"📚 **Урок: {topic_name}**\n"
+            message += f"**Уровень: {bloom_levels[bloom_level-1]}** (уровень {bloom_level} из 6)\n\n"
             message += f"{lesson_data['lesson']}\n\n"
             message += f"❓ **Вопрос:**\n{lesson_data['question']}"
             
@@ -266,66 +655,110 @@ class OldChurchSlavonicBot:
     async def handle_quiz_answer(self, chat_id, message_id, user_id, callback_data):
         """Handle quiz answer"""
         session = self.quiz_sessions.get(user_id)
-        if not session or session['answered']:
+        if not session or session.get('answered'):
+            await self.edit_message(
+                chat_id, 
+                message_id, 
+                "Вы уже ответили на этот вопрос или сессия истекла.",
+                {"inline_keyboard": [[{"text": "Получить новое задание", "callback_data": "get_assignment"}]]}
+            )
             return
+        
+        # Mark as answered
+        session['answered'] = True
         
         # Parse answer
         try:
             parts = callback_data.split("_", 2)
             option_index = int(parts[1])
             user_answer = session['options'][option_index]  # Get full answer from session
-        except:
-            return
-        
-        session['answered'] = True
-        session['user_answer'] = user_answer
-        is_correct = user_answer == session['correct_answer']
-        
-        # Show loading
-        await self.edit_message(chat_id, message_id, "⏳ Проверяем ответ...")
-        
-        try:
-            # Generate feedback
-            feedback = await openai_service.generate_feedback(
-                session['question'], user_answer, session['correct_answer'], is_correct
+            
+            # Check if answer is correct
+            is_correct = user_answer == session['correct_answer']
+            
+            # Get topic information
+            topic_id = session.get('topic_id')
+            current_bloom_level = session.get('bloom_level', 1)
+            
+            # Update progress based on answer correctness
+            new_bloom_level = current_bloom_level
+            if topic_id:
+                if is_correct:
+                    # If correct, increase Bloom's level (max 6)
+                    new_bloom_level = min(current_bloom_level + 1, 6)
+                    # If reached level 6, mark topic as completed
+                    is_completed = (new_bloom_level == 6)
+                    
+                    # Update topic progress in database
+                    db.update_topic_progress(user_id, topic_id, new_bloom_level, is_completed)
+                    
+                    # If completed this topic, move to next topic
+                    if is_completed:
+                        next_topic = db.get_next_topic(user_id, topic_id)
+                        if next_topic:
+                            db.set_current_topic(user_id, next_topic["id"])
+                else:
+                    # If incorrect, decrease Bloom's level (min 1)
+                    new_bloom_level = max(current_bloom_level - 1, 1)
+                    db.update_topic_progress(user_id, topic_id, new_bloom_level, False)
+            
+            # Save progress to history
+            topic_name = "" if not topic_id else db.get_topic_name(topic_id)
+            db.save_progress(
+                user_id, 
+                topic_name,  # lesson_topic 
+                session['question'], 
+                user_answer,  # user_answer
+                session['correct_answer'],  # correct_answer
+                is_correct  # is_correct
             )
-        except:
-            feedback = None
-        
-        # Format result - SEND NEW MESSAGE instead of editing
-        if is_correct:
-            result = "✅ **Правильно!**"
-        else:
-            result = f"❌ **Неправильно.**\n🎯 Правильный ответ: **{session['correct_answer']}**"
-        
-        result_message = f"{result}\n\n"
-        if feedback:
-            result_message += f"💡 {feedback}\n\n"
-        result_message += "Что желаешь делать дальше?"
-        
-        keyboard = {
-            "inline_keyboard": [
-                [{"text": "📖 Получить задание", "callback_data": "get_assignment"}],
-                [{"text": "📜 Посмотреть прогресс", "callback_data": "show_progress"}]
+            
+            # Format response message with Bloom's taxonomy information
+            bloom_levels = [
+                "Запоминание",  # Remember
+                "Понимание",     # Understand
+                "Применение",   # Apply
+                "Анализ",        # Analyze
+                "Оценка",        # Evaluate
+                "Творчество"    # Create
             ]
-        }
-        
-        # Send new message instead of editing
-        await self.send_message(chat_id, result_message, keyboard)
-        
-        # Save progress to database
-        db.save_progress(
-            user_id=user_id,
-            lesson_topic="Урок старославянского",
-            question=session['question'],
-            user_answer=user_answer,
-            correct_answer=session['correct_answer'],
-            is_correct=is_correct
-        )
-        
-        # Clean up session
-        del self.quiz_sessions[user_id]
-        logger.info(f"User {user_id} answered {'correctly' if is_correct else 'incorrectly'}")
+            
+            if is_correct:
+                response = f"🎉 **Правильно!**\n\n"
+                response += f"Твой ответ: {user_answer}\n\n"
+                
+                if topic_id and new_bloom_level > current_bloom_level:
+                    if new_bloom_level == 6:
+                        response += f"🌟 **Поздравляем!** Вы полностью освоили эту тему!\n\n"
+                    else:
+                        response += f"⬆️ Вы перешли на уровень **{bloom_levels[new_bloom_level-1]}** (уровень {new_bloom_level} из 6)\n\n"
+            else:
+                response = f"🚫 **Неверно**\n\n"
+                response += f"Твой ответ: {user_answer}\n\n"
+                response += f"Правильный ответ: {session['correct_answer']}\n\n"
+                
+                if topic_id and new_bloom_level < current_bloom_level:
+                    response += f"⬇️ Вам нужно больше практики. Возврат на уровень **{bloom_levels[new_bloom_level-1]}** (уровень {new_bloom_level} из 6)\n\n"
+            
+            # Add buttons for next actions
+            keyboard = {
+                "inline_keyboard": [
+                    [{"text": "📖 Получить новое задание", "callback_data": "get_assignment"}],
+                    [{"text": "📋 Учебный план", "callback_data": "show_study_plan"}],
+                    [{"text": "🏠 Главное меню", "callback_data": "main_menu"}]
+                ]
+            }
+            
+            await self.edit_message(chat_id, message_id, response, keyboard)
+            
+        except Exception as e:
+            logger.error(f"Error handling quiz answer: {e}")
+            await self.edit_message(
+                chat_id,
+                message_id,
+                f"😔 Произошла ошибка при обработке ответа.",
+                {"inline_keyboard": [[{"text": "📖 Получить новое задание", "callback_data": "get_assignment"}]]}
+            )
     
     async def show_progress(self, chat_id, message_id, user_id):
         """Show user progress as a chronicle"""
@@ -339,7 +772,7 @@ class OldChurchSlavonicBot:
         
         first_name = user_data.get('first_name', 'Странник')
         
-        # Generate chronicle using current date in Old Church Slavonic style
+        # Generate chronicle using current date in Inter-Slavic style
         current_year = datetime.now().year
         byzantine_year = current_year + 5508  # Byzantine calendar
         month_name = datetime.now().strftime("%B")
@@ -389,7 +822,7 @@ class OldChurchSlavonicBot:
     
     async def run(self):
         """Main bot loop"""
-        logger.info("Starting Enhanced Old Church Slavonic Bot...")
+        logger.info("Starting Enhanced Inter-Slavic Bot...")
         offset = None
         
         while True:
@@ -435,6 +868,12 @@ class OldChurchSlavonicBot:
                                 await self.handle_quiz_answer(chat_id, message_id, user_id, data)
                             elif data == "show_progress":
                                 await self.show_progress(chat_id, message_id, user_id)
+                            elif data == "show_study_plan":
+                                await self.show_study_plan(chat_id, message_id, user_id)
+                            elif data == "next_topic":
+                                await self.handle_next_topic(chat_id, message_id, user_id)
+                            elif data == "prev_topic":
+                                await self.handle_prev_topic(chat_id, message_id, user_id)
                             elif data == "main_menu":
                                 user_data = db.get_user(user_id)
                                 first_name = user_data.get('first_name', 'друг') if user_data else 'друг'

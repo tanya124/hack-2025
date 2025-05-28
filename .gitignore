@@ -1,5 +1,6 @@
 # Environment variables
 .env
+venv311/
 
 # Python
 __pycache__/

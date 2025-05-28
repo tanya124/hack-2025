@@ -52,7 +52,7 @@ class QuizHandler:
     
     def format_lesson_message(self, session: QuizSession) -> str:
         """Format the lesson and question message"""
-        message = f"📚 **Урок по старославянскому языку**\n\n"
+        message = f"📚 **Урок по межславянскому языку**\n\n"
         message += f"{session.lesson}\n\n"
         message += f"❓ **Вопрос:**\n{session.question}"
         return message
